@@ -13,6 +13,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.work.*
 import com.example.lab_week_08.worker.FirstWorker
 import com.example.lab_week_08.worker.SecondWorker
+import com.example.lab_week_08.worker.ThirdWorker
 
 class MainActivity : AppCompatActivity() {
 
@@ -30,7 +31,7 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
-        // 🔹 Minta izin notifikasi untuk Android 13+
+        // 🔹 Minta izin notifikasi (Android 13+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
@@ -39,13 +40,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 🔹 Constraint hanya jalan kalau device terhubung ke internet
+        // 🔹 Hanya jalan jika perangkat terhubung ke internet
         val networkConstraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
         val id = "001"
 
+        // 🔹 Inisialisasi semua Worker
         val firstRequest = OneTimeWorkRequest.Builder(FirstWorker::class.java)
             .setConstraints(networkConstraints)
             .setInputData(getIdInputData(FirstWorker.INPUT_DATA_ID, id))
@@ -56,12 +58,18 @@ class MainActivity : AppCompatActivity() {
             .setInputData(getIdInputData(SecondWorker.INPUT_DATA_ID, id))
             .build()
 
-        // Jalankan secara berurutan: first → second
+        val thirdRequest = OneTimeWorkRequest.Builder(ThirdWorker::class.java)
+            .setConstraints(networkConstraints)
+            .setInputData(getIdInputData(ThirdWorker.INPUT_DATA_ID, id))
+            .build()
+
+        // 🔹 Jalankan berurutan → First → Second → NotificationService → Third → SecondNotificationService
         workManager.beginWith(firstRequest)
             .then(secondRequest)
+            .then(thirdRequest)
             .enqueue()
 
-        // Observasi status FirstWorker
+        // 🔹 Observasi FirstWorker selesai
         workManager.getWorkInfoByIdLiveData(firstRequest.id)
             .observe(this) { info ->
                 if (info.state.isFinished) {
@@ -69,7 +77,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-        // Observasi status SecondWorker → lalu jalankan NotificationService
+        // 🔹 Observasi SecondWorker → jalankan NotificationService
         workManager.getWorkInfoByIdLiveData(secondRequest.id)
             .observe(this) { info ->
                 if (info.state.isFinished) {
@@ -77,26 +85,48 @@ class MainActivity : AppCompatActivity() {
                     launchNotificationService()
                 }
             }
+
+        // 🔹 Observasi ThirdWorker → jalankan SecondNotificationService
+        workManager.getWorkInfoByIdLiveData(thirdRequest.id)
+            .observe(this) { info ->
+                if (info.state.isFinished) {
+                    showResult("Third process is done")
+                    launchSecondNotificationService()
+                }
+            }
     }
 
-    // 🔹 Format input data
+    // 🔹 Format input data untuk tiap Worker
     private fun getIdInputData(idKey: String, idValue: String) =
         Data.Builder()
             .putString(idKey, idValue)
             .build()
 
-    // 🔹 Tampilkan hasil dengan Toast
+    // 🔹 Menampilkan Toast hasil tiap proses
     private fun showResult(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
-    // 🔹 Jalankan NotificationService
+    // 🔹 Jalankan NotificationService (setelah SecondWorker)
     private fun launchNotificationService() {
         NotificationService.trackingCompletion.observe(this) { Id ->
             showResult("Process for Notification Channel ID $Id is done!")
         }
 
         val serviceIntent = Intent(this, NotificationService::class.java).apply {
+            putExtra(EXTRA_ID, "001")
+        }
+
+        ContextCompat.startForegroundService(this, serviceIntent)
+    }
+
+    // 🔹 Jalankan SecondNotificationService (setelah ThirdWorker)
+    private fun launchSecondNotificationService() {
+        SecondNotificationService.trackingCompletion.observe(this) { Id ->
+            showResult("Process for Second Notification Channel ID $Id is done!")
+        }
+
+        val serviceIntent = Intent(this, SecondNotificationService::class.java).apply {
             putExtra(EXTRA_ID, "001")
         }
 
